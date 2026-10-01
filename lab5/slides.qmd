@@ -64,6 +64,8 @@ Teams of 4 to 5; two teams debate opposite sides of the same topic. Read the fou
   - Resubmit for a **free regrade**
 - **Lab 4 grades:** in progress; Ready this Sunday
 - **Lab Slides Format**
+- **Course site:** [navxihziq.github.io/urp-506-lab](https://navxihziq.github.io/urp-506-lab/)
+  - Slides, handouts, and data for every lab
 
 # Recap: Hypothesis Testing
 
