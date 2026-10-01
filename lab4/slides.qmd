@@ -1,8 +1,9 @@
 ---
 title: "Lab 4: The Normal Distribution and Data Visualization"
 subtitle: "URP 506 Planning Methods"
-author: "Zhixuan"
+author: "Zhixuan Qi"
 date: "Fall 2026"
+date-format: "[Fall] YYYY"
 format:
   revealjs:
     theme: default
