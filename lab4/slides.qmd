@@ -1,0 +1,522 @@
+---
+title: "Lab 4: The Normal Distribution and Data Visualization"
+subtitle: "URP 506 Planning Methods"
+author: "Zhixuan"
+date: "Fall 2026"
+format:
+  revealjs:
+    theme: default
+    slide-number: true
+    code-line-numbers: false
+    fig-width: 9
+    fig-height: 4.2
+    fig-align: center
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(ggplot2)
+
+# shared look for every plot in the deck
+teal <- c(light = "#c3f3ec", mid1 = "#92ebe0", mid2 = "#4dd8c8", dark = "#35cdb9")
+navy <- "#1f3a60"
+
+theme_lab <- theme_classic(base_size = 18) +
+  theme(axis.line = element_line(linewidth = 0.8))
+
+# standard normal curve, reused below
+curve_df <- data.frame(x = seq(-4, 4, length.out = 801))
+curve_df$y <- dnorm(curve_df$x)
+
+base_plot <- ggplot(curve_df, aes(x, y)) +
+  scale_x_continuous(limits = c(-4, 4), breaks = seq(-4, 4, 2)) +
+  scale_y_continuous(limits = c(0, 0.48), breaks = seq(0, 0.4, 0.1),
+                     expand = c(0, 0)) +
+  labs(x = "x", y = "Probability density") +
+  theme_lab
+```
+
+## Roadmap
+
+1. Logistics
+2. The normal distribution: the math
+3. Normal distribution functions in R
+4. Graphing with base R and ggplot2
+
+# Logistics
+
+## Logistics
+- Quizes grade will be released this Sunday;
+- Lab 4 is due next Thursday before class, 10/01, 10:00 AM;
+
+# The Normal Distribution
+
+## What is a normal distribution?
+
+A continuous probability distribution that is:
+
+- **Bell-shaped** and **symmetric** around its center
+- Fully described by two parameters: mean $\mu$ (center) and standard deviation $\sigma$ (spread)
+- Mean = median = mode
+
+We write $X \sim N(\mu, \sigma^2)$.
+
+The **standard normal** is the special case $\mu = 0$, $\sigma = 1$: $Z \sim N(0, 1)$.
+
+## Same shape, different $\mu$ and $\sigma$
+
+```{r}
+#| echo: false
+params <- data.frame(mu = c(0, 0, 2), sigma = c(1, 2, 0.7))
+shape_df <- do.call(rbind, lapply(seq_len(nrow(params)), function(i) {
+  x <- seq(-6, 6, length.out = 601)
+  data.frame(x = x,
+             y = dnorm(x, params$mu[i], params$sigma[i]),
+             group = factor(i))
+}))
+
+ggplot(shape_df, aes(x, y, colour = group)) +
+  geom_line(linewidth = 1.2) +
+  scale_colour_manual(
+    values = c("#1b9e77", navy, "#d95f02"), name = NULL,
+    labels = c(expression(mu == 0 * "," ~ sigma == 1),
+               expression(mu == 0 * "," ~ sigma == 2),
+               expression(mu == 2 * "," ~ sigma == 0.7))) +
+  labs(x = "x", y = "Probability density") +
+  theme_lab +
+  theme(legend.position = "top")
+```
+
+$\mu$ shifts the curve left or right. $\sigma$ stretches or squeezes it. Total area is always 1.
+
+## Z-scores: any normal to the standard normal
+
+$$
+z = \frac{x - \mu}{\sigma}
+$$
+
+How many standard deviations $x$ sits from the mean.
+
+If $X \sim N(\mu, \sigma^2)$, then $Z = \frac{X - \mu}{\sigma} \sim N(0, 1)$.
+
+**Example.** Commute times $\sim N(20, 10^2)$. A 28-minute commute:
+
+$$
+z = \frac{28 - 20}{10} = 0.8
+$$
+
+::: {.notes}
+We just saw normals with different means and spreads. A z-score puts all of them on one ruler: subtract the mean, divide by the standard deviation. The answer is in units of standard deviations. Commute times with mean 20 and sd 10: a 28-minute commute is 0.8 standard deviations above average. Two payoffs. First, once you're in z units, the standard normal, the one with default arguments in R, answers the question for any normal. Second, you can compare things measured in different units, like a county's income and its population, because both become "how unusual is this." Watch for this exact example in practice question 1.
+:::
+
+## Same curve, two rulers
+
+```{r}
+#| label: fig-zscore
+#| echo: false
+#| fig-height: 4.8
+mu <- 20; sigma <- 10; x0 <- 28
+z_df <- data.frame(x = seq(mu - 3.5 * sigma, mu + 3.5 * sigma, length.out = 801))
+z_df$y <- dnorm(z_df$x, mu, sigma)
+
+ggplot(z_df, aes(x, y)) +
+  geom_area(fill = teal["light"]) +
+  geom_line(linewidth = 1) +
+  annotate("segment", x = mu, xend = mu, y = 0, yend = dnorm(mu, mu, sigma),
+           colour = "grey50", linetype = "dashed") +
+  annotate("segment", x = x0, xend = x0, y = 0, yend = dnorm(x0, mu, sigma),
+           colour = navy, linewidth = 1.2) +
+  annotate("text", x = x0 + 1.5, y = dnorm(x0, mu, sigma) + 0.002, hjust = 0,
+           size = 6, colour = navy, label = "28 min  (z = 0.8)") +
+  scale_x_continuous(name = "Commute time (minutes)",
+                     breaks = seq(mu - 3 * sigma, mu + 3 * sigma, sigma),
+                     sec.axis = sec_axis(~ (. - mu) / sigma, name = "z",
+                                         breaks = -3:3)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 0.043)) +
+  labs(y = "Density") +
+  theme_lab
+```
+
+::: {.notes}
+Same curve, two axes. Minutes on the bottom, z on the top. The dashed line is the mean: 20 minutes, z = 0. Every 10 minutes is one step in z. 28 minutes lines up with 0.8 on the top axis. Standardizing doesn't change the shape; it only relabels the axis. If anyone notices the curve extending below zero minutes: this model assigns about 2% probability to negative commutes, a reminder that the normal is an approximation.
+:::
+
+## Probability density function (PDF)
+
+$$
+f(x) = \frac{1}{\sigma\sqrt{2\pi}} \, e^{-\frac{(x-\mu)^2}{2\sigma^2}}
+$$
+
+The **height** of the curve at $x$.
+
+```{r}
+#| echo: false
+#| fig-height: 3.6
+x0 <- 1
+base_plot +
+  geom_area(fill = teal["light"]) +
+  geom_line(linewidth = 1) +
+  annotate("segment", x = x0, xend = x0, y = 0, yend = dnorm(x0),
+           colour = navy, linewidth = 1) +
+  annotate("point", x = x0, y = dnorm(x0), size = 4, colour = navy) +
+  annotate("label", x = x0 + 0.25, y = dnorm(x0) + 0.03, hjust = 0, size = 6,
+           label = sprintf("f(1) = %.3f", dnorm(x0)))
+```
+
+::: {.notes}
+Density is not probability. For a continuous variable P(X = 1) = 0; probabilities come from areas.
+:::
+
+## Cumulative distribution function (CDF)
+
+$$
+F(x) = P(X \le x) = \int_{-\infty}^{x} f(t)\,dt
+$$
+
+The **area** under the PDF up to $x$.
+
+```{r}
+#| echo: false
+#| fig-height: 3.6
+q0 <- 1
+base_plot +
+  geom_area(fill = teal["light"]) +
+  geom_area(data = subset(curve_df, x <= q0), fill = teal["dark"]) +
+  geom_line(linewidth = 1) +
+  annotate("text", x = -0.3, y = 0.12, size = 6, parse = TRUE,
+           label = sprintf("P(X <= 1) == %.3f", pnorm(q0)))
+```
+
+## The CDF as a curve
+
+Plot $F(x)$ for every $x$ and you get an S-curve running from 0 to 1.
+
+```{r}
+#| echo: false
+cdf_df <- data.frame(x = curve_df$x, p = pnorm(curve_df$x))
+ggplot(cdf_df, aes(x, p)) +
+  geom_line(linewidth = 1.2, colour = teal["dark"]) +
+  annotate("segment", x = -4, xend = 1, y = pnorm(1), yend = pnorm(1),
+           linetype = "dashed", colour = navy) +
+  annotate("segment", x = 1, xend = 1, y = 0, yend = pnorm(1),
+           linetype = "dashed", colour = navy) +
+  annotate("point", x = 1, y = pnorm(1), size = 4, colour = navy) +
+  annotate("label", x = 1.2, y = pnorm(1) - 0.08, hjust = 0, size = 6,
+           label = sprintf("F(1) = %.3f", pnorm(1))) +
+  scale_x_continuous(limits = c(-4, 4), breaks = seq(-4, 4, 2)) +
+  scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  labs(x = "x", y = "Cumulative probability") +
+  theme_lab
+```
+
+## Reading it backwards: quartiles
+
+Fix the area, solve for $x$. The values that cut the curve into four 25% slices are the quartiles.
+
+```{r}
+#| echo: false
+#| fig-height: 3.8
+qs <- qnorm(c(0.25, 0.5, 0.75))
+edges <- c(-4, qs, 4)
+band_df <- do.call(rbind, lapply(1:4, function(i) {
+  x <- seq(edges[i], edges[i + 1], length.out = 200)
+  data.frame(x = x, y = dnorm(x), band = factor(i))
+}))
+
+base_plot +
+  geom_ribbon(data = band_df, aes(x = x, ymin = 0, ymax = y, fill = band),
+              inherit.aes = FALSE, show.legend = FALSE) +
+  scale_fill_manual(values = unname(teal)) +
+  geom_line(linewidth = 0.6, colour = teal["dark"]) +
+  annotate("segment", x = qs, xend = qs, y = 0, yend = 0.44,
+           colour = navy, linewidth = 0.4) +
+  annotate("text", x = qs, y = 0.465, label = c("Q1", "Q2", "Q3"), size = 6) +
+  annotate("text", x = c(-1.5, -0.34, 0.34, 1.5), y = 0.06,
+           label = "25%", size = 5.5)
+```
+
+# Normal Distribution Functions in R
+## `dnorm()`, `pnorm()`, `qnorm()`, `rnorm()` {.smaller}
+
+| Function | Stands for | Question it answers | Returns |
+|---|---|---|---|
+| `dnorm(x)` | **d**ensity | How tall is the curve at $x$? | $f(x)$, the PDF |
+| `pnorm(q)` | **p**robability | What share falls at or below $q$? | $F(q) = P(X \le q)$, the CDF |
+| `qnorm(p)` | **q**uantile | Which $x$ has $p$ of the area below it? | $F^{-1}(p)$, the inverse CDF |
+| `rnorm(n)` | **r**andom | Give me $n$ draws from this distribution | $n$ simulated values |
+
+All four take `mean` and `sd` (defaults: `mean = 0`, `sd = 1`).
+
+The same prefixes work for other distributions: `dbinom()`, `pt()`, `qchisq()`, ...
+
+## Same curve, four functions
+
+```{r}
+#| label: norm-functions
+dnorm(1)        # height at x = 1
+pnorm(1)        # area left of x = 1
+qnorm(0.75)     # x with 75% below it (Q3)
+
+set.seed(42)
+rnorm(5)        # five random draws
+```
+
+# Graphing in R
+
+## Goal: see the distribution
+
+```{r}
+#| label: setup-draws
+#| include: false
+set.seed(506)
+draws <- data.frame(value = rnorm(1000, mean = 0, sd = 1))
+```
+
+```{r}
+#| label: fig-target
+#| echo: false
+#| fig-height: 4
+ggplot(draws, aes(x = value)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 30,
+                 fill = teal["mid2"], colour = "white") +
+  geom_function(fun = dnorm, linewidth = 1.2, colour = navy) +
+  labs(title = "1,000 draws from N(0, 1)", x = "x", y = "Density") +
+  theme_lab
+```
+
+::: {.notes}
+This is where we're headed. Bars are 1,000 random draws from rnorm. The line is dnorm, the PDF from earlier. If the draws really come from this distribution, the bars should hug the curve. We'll build this exact figure twice, once in base R and once in ggplot2, so the only thing that changes is syntax.
+:::
+
+## Step 0: simulate the data
+
+```{r}
+#| eval: false
+set.seed(506)
+draws <- data.frame(value = rnorm(1000, mean = 0, sd = 1))
+head(draws, 3)
+```
+
+```{r}
+#| echo: false
+head(draws, 3)
+```
+
+::: {.notes}
+set.seed makes the random draws reproducible. Same seed, same numbers, on everyone's machine. rnorm with n = 1000, mean 0, sd 1 gives us the standard normal. We wrap it in a data frame because ggplot wants a data frame; base R is happy with a vector, but this way both use the same object. One column, called value.
+:::
+
+## Base R: the template
+
+```r
+hist(<VECTOR>, freq = FALSE, breaks = <N>,
+     main = "<title>", xlab = "<x label>", ylab = "<y label>")
+
+curve(<FUNCTION>(x), add = TRUE, <STYLE>)
+```
+
+- **hist()**: draws a histogram of a numeric vector; freq = FALSE puts it on the density scale
+- **curve()**: draws a function of `x` across the plot
+- **add = TRUE**: draw on the current plot instead of starting a new one
+
+::: {.notes}
+Two functions, two jobs. hist takes a numeric vector, not a data frame, so we'll pass it a column with the dollar sign. freq = FALSE puts it on the density scale. breaks, main, and the axis labels are optional; the defaults work, they're just ugly. curve takes an expression in x, and it has to be literally the letter x, which curve fills in across the plot's range. add = TRUE is the key argument; leave it off and curve wipes the histogram and draws on a fresh canvas. Style arguments like lwd for line width and col for colour come last. Next slide, same template with our data plugged in.
+:::
+
+## Base R: draw, then add
+
+```{r}
+#| label: fig-base-hist
+#| fig-height: 3.2
+hist(draws$value, freq = FALSE, breaks = 30,
+     main = "1,000 draws from N(0, 1)", xlab = "x", ylab = "Density")
+curve(dnorm(x), add = TRUE, lwd = 2, col = "navy")
+```
+
+::: {.notes}
+Two function calls. hist draws the histogram right away. freq = FALSE switches the y axis from counts to density; without it the bars go up to around 100 and the curve would be a flat line at the bottom. breaks sets roughly how many bars. Then curve draws dnorm on top, and add = TRUE is what stops it from opening a new plot. That's the base R logic: every call paints on the current canvas immediately, in order.
+:::
+
+## ggplot2: describe, then render
+
+```r
+ggplot(data = <DATA>, mapping = aes(<MAPPINGS>)) +
+  <GEOM_FUNCTION>() +
+  <GEOM_FUNCTION>()
+```
+
+- **data**: a data frame
+- **aes()**: which columns map to x, y, color, ...
+- **geom**: how to draw them (bars, lines, points, ...)
+
+::: {.notes}
+ggplot works differently. You describe the plot: here is the data, here is which column goes on which axis, here is the shape to draw. Layers are joined with a plus sign. Nothing appears until the whole object is printed. Every ggplot you'll ever write fits this template. Let's fill it in one line at a time.
+:::
+
+## Build it: data + mapping
+
+```{r}
+#| fig-height: 3.2
+ggplot(draws, aes(x = value))
+```
+
+::: {.notes}
+Data is draws, and we map the value column to x. We get a canvas with an x axis already scaled to the data, but nothing on it, because we haven't said how to draw anything yet. That's a geom's job.
+:::
+
+## Build it: add a histogram
+
+```{r}
+#| fig-height: 3.2
+#| code-line-numbers: "2"
+ggplot(draws, aes(x = value)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 30)
+```
+
+::: {.notes}
+geom_histogram draws the bars. after_stat(density) means: after counting, put density on the y axis instead of the count. It's the ggplot equivalent of freq = FALSE, and we need it for the same reason: so the curve fits. bins plays the role of breaks.
+:::
+
+## Build it: add the PDF
+
+```{r}
+#| fig-height: 3.2
+#| code-line-numbers: "3"
+ggplot(draws, aes(x = value)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 30) +
+  geom_function(fun = dnorm)
+```
+
+::: {.notes}
+geom_function draws any function across the x range. We pass dnorm, the same dnorm we called earlier by hand. Plus sign, new layer. Compare with base R: there it was curve with add = TRUE; here, adding is simply what the plus sign does.
+:::
+
+## Build it: labels and style
+
+```{r}
+#| fig-height: 3
+#| code-line-numbers: "2-3|4|5-6|7"
+ggplot(draws, aes(x = value)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 30,
+                 fill = "#4dd8c8", colour = "white") +
+  geom_function(fun = dnorm, linewidth = 1.2) +
+  labs(title = "1,000 draws from N(0, 1)",
+       x = "x", y = "Density") +
+  theme_classic()
+```
+
+::: {.notes}
+Nothing new structurally, just polish. Click through the highlights. fill and colour on the histogram: fill is the inside of the bars, colour is the outline. Note that these are outside aes because they are fixed values, not mapped from data. linewidth thickens the curve. labs sets the title and axis labels. theme_classic strips the grey background. Same figure as the base R version.
+:::
+
+## Where `aes()` goes
+
+::: {.columns}
+::: {.column width="50%"}
+**In `ggplot()`: every layer inherits it**
+
+```r
+ggplot(draws, aes(x = value)) +
+  geom_histogram(bins = 30) +
+  geom_boxplot()
+```
+:::
+::: {.column width="50%"}
+**In a geom: that layer only**
+
+```r
+ggplot(draws) +
+  geom_histogram(aes(x = value),
+                 bins = 30)
+```
+:::
+:::
+
+Rule of thumb: put a mapping in `ggplot()` if every layer uses it; put it in the geom if only one does.
+
+::: {.notes}
+A common point of confusion. A mapping inside ggplot() is shared by every layer below it. A mapping inside a geom applies to that geom only. On the left, both the histogram and the box plot get x = value. On the right, only the histogram knows about it. geom_function, which we just used, needs no mapping at all; it computes its own y from fun.
+:::
+
+::: {.notes}
+Before the box plot, find the quartiles directly. quantile() takes the data and the probabilities we want: 25, 50, 75 percent. It returns about -0.68, 0.03, and 0.73. Compare with qnorm(c(0.25, 0.5, 0.75)): -0.67, 0, 0.67. Close, not identical. quantile() works on the sample, qnorm() on the theoretical distribution; with 1,000 draws they nearly agree. abline with v = draws vertical lines at those values, one per quartile, on top of the existing histogram, the same draw-then-add logic as curve. In ggplot the equivalent is geom_vline(xintercept = q). Keep these three lines in mind: the next slide draws them as a box.
+:::
+
+## Box plot: the quartile slide, redrawn
+
+```{r}
+#| layout-ncol: 2
+#| fig-width: 5
+#| fig-height: 3
+boxplot(draws$value, horizontal = TRUE, xlab = "x")
+
+ggplot(draws, aes(x = value)) +
+  geom_boxplot() +
+  theme_classic()
+```
+
+::: {.notes}
+Same data, one line in base R, three in ggplot. The box runs from Q1 to Q3, and the line inside is Q2, the median. This is the quartile slide from earlier, flattened onto one axis. Check it: the box edges should sit near qnorm(0.25) and qnorm(0.75), about minus and plus 0.67. The whiskers extend to the most extreme point within 1.5 times the box width; dots beyond that are drawn individually. For a normal, expect a handful of those, which doesn't mean anything is wrong. The y axis on the ggplot version is meaningless; ignore it.
+:::
+
+## Box plots: comparing groups (base R)
+
+```{r}
+#| label: fig-box-base
+#| fig-height: 3
+draws2 <- data.frame(value = rnorm(1000, mean = 1, sd = 2))
+
+boxplot(draws$value, draws2$value,
+        names = c("draws", "draws2"),
+        horizontal = TRUE, xlab = "x")
+```
+
+::: {.notes}
+First, one more sample: 1,000 draws from a normal with mean 1 and sd 2. Base R's boxplot takes as many vectors as you like, one box per vector; names labels them. Reading a box: it runs from Q1 to Q3, the line inside is Q2, the median. That's the quartile slide from earlier, flattened onto one axis. For draws, the box edges sit near plus and minus 0.67, same as qnorm. Whiskers reach the most extreme point within 1.5 box-widths; dots beyond are drawn individually. For a normal, expect a handful, which doesn't mean anything is wrong. Now compare: draws2 is shifted right, that's the mean of 1, and its box is about twice as wide, that's the sd of 2. This is what box plots are for: comparing distributions side by side.
+:::
+
+## Box plots: comparing groups (ggplot2)
+
+```{r}
+#| label: fig-box-gg
+#| fig-height: 3
+both <- data.frame(
+  group = rep(c("draws", "draws2"), each = 1000),
+  value = c(draws$value, draws2$value)
+)
+
+ggplot(both, aes(x = value, y = group)) +
+  geom_boxplot() +
+  theme_classic()
+```
+
+::: {.notes}
+ggplot works differently. It wants one data frame, with one column for the values and one column saying which group each value belongs to. So we stack the two samples: rep repeats each label 1,000 times, and c concatenates the values in the same order. This is called long format. Then group goes to y, and ggplot draws one box per group automatically. Practice question 3 needs exactly this, with real variables instead of draws. In the tidyverse, pivot_longer does the stacking for you; the handout shows it.
+:::
+
+## Next
+
+1. Read through the handout explanations and examples
+2. Do the practice questions
+3. Complete the quiz: **Canvas → Assignments → Lab 4**, due by next lab
+
+Feel free to leave once you're done.
+
+---
+
+### Bonus: find the errors
+
+The handout contains a few **statistical errors in its descriptions** (interpretations, not code).
+
+Hint: read carefully whenever it talks about **populations**.
+
+Extra points for correct catches *(details to be confirmed)*. Say what's wrong and why.
+
+::: {.notes}
+Usual routine: handout, practice questions, quiz, due before next lab. Leave when you're done. One more thing. The handout has some errors in how it describes the statistics, not in the code itself. I'm not telling you where. Hint: pay attention whenever it talks about populations. If you find one, write down what the handout says, what's actually true, and why. We're working out extra credit for correct catches; I'll confirm the details. This is good practice anyway: reading statistical claims skeptically is most of the job.
+:::

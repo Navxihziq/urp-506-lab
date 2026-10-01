@@ -1,0 +1,284 @@
+---
+title: "Lab5: Hypothesis Testing (T-tests)"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+**Xiaofan Liang** 
+**July 12th, 2025**
+
+**and Zhixuan Qi**
+**Updated on Sep 30th, 2026**
+
+## Learning Objectives
+By the end of this practical lab you will be able to:
+
+* Table join between two tables 
+* Box-plot to check normality assumption
+* One Sample, One-Tailed T-Test 
+* Two Sample, Two-Tailed T-Test
+* (Optional) Visualize Mean Difference with Histogram 
+* (Optional) Histogram Comparison through ggplot2 
+
+**CHEATSHEETS!** You are encouraged to download RStudio Cheatsheets. You can find them on RStudio website [here](https://posit.co/resources/cheatsheets/?type=posit-cheatsheets/), or a comprehensive list (more than what has been listed) [here](https://github.com/rstudio/cheatsheets/). For example, here you can find [base R syntax](https://rstudio.github.io/cheatsheets/base-r.pdf), [dplyr](https://rstudio.github.io/cheatsheets/data-transformation.pdf) (which contains most of the functions for data wrangling in tidyverse), and [ggplot2](https://rstudio.github.io/cheatsheets/data-visualization.pdf).  
+
+New functions are summarized below: 
+
+Functions       [Package If Any] Tasks   
+--------        --------------
+`t.test()`      Performs one and two sample t-tests on vectors of data
+`left_join()`   [tidyverse] Adds columns from table y to table x, matching observations based on the keys.
+--------        --------------
+
+## Dataset Introduction 
+
+Independent restaurants are important for placemaking, cultivating place identity, and creating local culture. From Lab 5 to Lab 9, we will use the same **restaurant chainness dataset** for code demonstration. **The driving research question from Lab 5 to Lab 9 is: what place characteristics (both socioeconomic attributes and built environment attributes) are associated with the prevalence of chain restaurants?** In another word, which (types of) locales have an independent food culture and which resemble McCities: foodscapes with chains? 
+
+Please note that while different statistical methods (from Lab 5 to Lab 9) provide some levels of answers to this core question, not all of them are effective. For instances, methods applied to categorical variables will be less effective for this dataset because there are very few variables that are categorical.  
+
+The data contains the average frequency of restaurants (i.e., the number of outlets in the U.S.), the percentage of chain restaurants, and the number of restaurants for Metropolitan Statistical Areas (MSAs) in the United States. This data was collected in 2017 through the Yellow Pages website. You can access a more updated version of this dataset (2021) aggregated on the county, urban area, or MSA levels at [this GitHub page](https://github.com/friendlycities-gatech/chainness). 
+
+This dataset was developed as a project to study the distribution of independent and chain restaurants in the United States. The paper is cited below: 
+
+* Liang, X., & Andris, C. (2021). Measuring McCities: Landscapes of chain and independent restaurants in the United States. Environment and Planning B: Urban Analytics and City Science, 49(2), 585-602. https://doi.org/10.1177/23998083211014896
+
+The columns of the chainness dataset include the following: 
+
+* **MSA_GEOID**: U.S. Census designated unique ID for a geography (in this case, MSA)
+* **MSA_NAME**: The name of the Metropolitan Statistical Area 
+* **avg_frequency**: The average frequency of restaurants in this MSA. A restaurant's frequency equals to its number of outlets in the entire United States. Higher values mean that there are more chain restaurants.
+* **chain_pct**: The percentage of chain restaurant. A restaurant is defined as a chain restaurant if it has more than five outlets in the United States. Higher values mean that there are more chain restaurants. 
+
+### Setting Environment and Importing Data
+```{r message=FALSE}
+# set environment 
+# setwd("/Users/xfliang/University of Michigan Dropbox/Xiaofan Liang/UM_Teaching/URP506_F25/Lab/Lab5/")
+# load tidyverse libraries 
+library(tidyverse)
+# import data
+chainness <- read.csv("chainness_by_MSA.csv")
+head(chainness)
+```
+
+We also included a secondary factor dataset with data extracted from U.S. Census and other third party sources. 
+
+The column of the factor dataset includes the following: 
+
+* **MSA_GEOID**: U.S. Census designated unique ID for a geography (in this case, MSA)
+* **trump_pct**: Percentage of population voted for Trump in 2016 election
+* **majority_vote**: Which president candidate the majority of population (>= 0.5) voted for in 2016 election
+* **median_income**: Median household income extracted from U.S. Census 
+* **pop_density**: Population density computed from U.S. Census 
+* **walkscore**: Walk Score, which is a third party score to describe the walkability of an area. It ranges from 0 and 100, and 100 means the most walkable. 
+
+```{r}
+factors <- read.csv("factors_by_MSA.csv")
+head(factors)
+```
+
+## Preparation for T-tests  
+
+For hypothesis testing (t-tests), we would like to know whether the mean difference between **two groups** is statistically significant. **Thus, the leading question here is whether MSAs' political orientation (voted for Trump or Clinton in `majority_vote`) is associated with statistically significant differences in their percent chain (i.e., `chain_pct`).**
+
+### Table Join
+
+To perform t-tests, we need to join the factors dataset to our chainness dataset based on `MSA_GEOID`. This can be done using the `left_join()` function in `tidyverse`. `left_join()` means that we only keep records that can be matched to the dataset "on the left", which is the first dataset we input into the function. 
+
+To perform a table join, both tables need to have a common, unique identifier column so that the computer knows how data from one table will be matched to the other. In this case, such column is `MSA_GEOID`. 
+
+```{r}
+# Join the two datasets by MSA_GEOID
+chainness_joined <- chainness %>% left_join(factors, by=c("MSA_GEOID"))
+head(chainness_joined)
+```
+
+<span style="color:purple">[zhixuan's comment]: `%>%` is the tidyverse pipe. Base R (4.1+) now has its own pipe, `|>`, which does the same thing here and needs no package: `chainness |> left_join(factors, by = "MSA_GEOID")`. You'll see both in the wild. We use `|>` in the slides, but either one is fine in your code.</span>
+
+### Box-plot to check normality assumption
+
+Before conducting t-tests, it is essential to check the data satisfies the normality assumption of the t-test. We can use box plots to visually inspect the distribution of `chain_pct` across different levels of a factor, such as `majority_vote`.
+
+```{r}
+boxplot(chain_pct ~ majority_vote, data = chainness_joined,
+        main = "Box-plot of Chain Percentage by Majority Vote",
+        xlab = "Majority Vote in 2016 Election",
+        ylab = "Percentage of Chain Restaurants")
+```
+
+Alternatively, the `ggplot2` syntax of the box plot is shown below: 
+
+```{r}
+# Box-plot of chain_pct by majority_vote
+library(ggplot2)
+ggplot(chainness_joined, aes(x = majority_vote, y = chain_pct)) +
+  geom_boxplot() +
+  labs(title = "Box-plot of Chain Percentage by Majority Vote",
+       x = "Majority Vote in 2016 Election",
+       y = "Percentage of Chain Restaurants")
+```
+
+Let's see the mean percent chain for MSAs that voted for Trump or Clinton. 
+
+```{r}
+chainness_joined %>% group_by(majority_vote) %>% summarise(mean_chain_pct = mean(chain_pct, na.rm=T))
+```
+
+We can see that the distribution of percent chain is similar to a normal distribution, which allows us to use T-tests to examine the hypothesis. Based on the visualization, the percent chain distribution for Trump is higher than for Clinton, and the average percent chain (0.437) for Trump is also higher than Clinton. 
+
+While simple mean comparisons can show us the average differences between these MSAs, t-tests allow us to rigorously test whether these observed differences are statistically significant. This means we can assess whether the differences we see in the percent chain are likely due to random variations in the samples we have or if they reflect true underlying disparities in the percent chain of these MSAs. 
+
+## One Sample, One-Tailed T-Test 
+
+In this section, we will test whether the average percentage of chain restaurants is significantly greater than 50%. Here, one sample means only one set of value is compared, and one-tail means that the comparison is only in one direction in the hypothesis testing (e.g., greater than or less than, but not both). **Please check out the t.test function in R (type `?t.test`) to understand what kinds of inputs the function allow. You will need this information in the practice questions below.**
+
+Hypotheses
+
+* Null Hypothesis (H0): The average percentage of chain restaurants is less than or equal to 50%.
+* Alternative Hypothesis (H1): The average percentage of chain restaurants is greater than 50%.
+
+```{r}
+t.test(chainness_joined$chain_pct, mu = 0.5, alternative = "greater")
+```
+
+Here is what each element means:
+
+* **t-value**: The t-value of -18.629 indicates how many standard errors the sample mean is away from the hypothesized population mean (50% chain restaurants). A negative t-value suggests the sample mean is less than the hypothesized mean.
+
+* **Degrees of freedom (df)**: The degrees of freedom for this test is 379, calculated as the number of observations minus 1.
+
+* **p-value**: The p-value of 1 indicates the probability of observing a t-value as extreme as -18.629 under the null hypothesis. A p-value of 1 suggests that the observed data is very consistent with the null hypothesis.
+
+* **Alternative hypothesis**: The alternative hypothesis states that the true mean percentage of chain restaurants is greater than 50%. 
+
+* **95% confidence interval**: The confidence interval [0.4077257, Inf] indicates that we are 95% confident the true mean percentage of chain restaurants is greater than approximately 40.77%. The lower bound of the confidence interval is below 50%, which means the confidence interval does not support the alternative hypothesis that the mean is greater than 50%.
+
+* **Sample estimate (mean of x)**: The mean percentage of chain restaurants in the sample is approximately 41.52%, which is well below 50%.
+
+You do not need to mention every single elements like above when reporting statistical outcomes. The list above is for pedagogical purpose. The most common elements explained in the interpretation is p-value, alternative hypothesis, confidence interval, and sample estimate. For instance, the following interpretation follows the principles of best statistical interpretations as demonstrated in the lab lecture: 
+
+The one-sample t-test results do not support the alternative hypothesis that the average percentage of chain restaurants is greater than 50%. Instead, the data strongly suggests that the mean percentage of chain restaurants is significantly less than 50%, given the negative t-value and the p-value of 1. The confidence interval and the sample mean both indicate that the true average percentage of chain restaurants is around 41.52%, which is substantially lower than the hypothesized 50%. Taken together, these findings suggest that in most U.S. metropolitan areas, independent restaurants remain the majority -- signaling a dining landscape that is still dominated by local establishments rather than chains.
+
+<span style="color:purple">[zhixuan's comment]: careful with the "significantly less than 50%" part above. This test only asks whether the mean is *greater* than 50%, so p = 1 just means we fail to reject H0. It doesn't show the mean is significantly *less* than 50%. To claim that, you'd need to run the test again with `alternative = "less"`.</span>
+
+## Two Sample, Two-Tailed T-Test 
+
+Here, we will compare the percentage of chain restaurants between areas that voted for Trump and areas that did not. 
+
+Hypotheses
+
+* **Null Hypothesis (H0)**: There is no difference in the average percentage of chain restaurants between areas that voted for Trump and those that did not.
+* **Alternative Hypothesis (H1)**: There is a difference in the average percentage of chain restaurants between areas that voted for Trump and those that did not.
+
+```{r}
+Trump <- chainness_joined %>% filter(majority_vote == "Trump")
+Clinton <- chainness_joined %>% filter(majority_vote == "Clinton")
+t.test(Trump$chain_pct, Clinton$chain_pct, alternative = "two.sided")
+```
+
+Here is what each element means:
+
+* **t-value**: The t-value of 5.0265 indicates the number of standard errors the difference in sample means is away from the hypothesized difference (which is 0 in this case). A positive t-value suggests that the mean percentage of chain restaurants in Trump-voting areas is higher than in Clinton-voting areas.
+
+* **Degrees of freedom (df)**: The degrees of freedom for this test is approximately 371.63, which is calculated based on the Welch-Satterthwaite equation used for unequal variances.
+
+* **p-value**: The p-value of 7.783e-07 (or 0.0000007783) is extremely small, indicating a very low probability of observing such a t-value under the null hypothesis. This suggests that the difference in means is highly statistically significant.
+
+* **Alternative hypothesis**: The alternative hypothesis states that the true difference in mean percentages of chain restaurants between Trump-voting and Clinton-voting areas is not equal to 0.
+
+* **95% confidence interval**: The confidence interval [0.02706139, 0.06183976] indicates that we are 95% confident the true difference in mean percentages of chain restaurants between the two groups lies between approximately 2.71% and 6.18%. This interval does not contain 0, supporting the conclusion that there is a significant difference between the two groups.
+
+* **Sample estimates**: mean of x (`Trump$chain_pct`): The mean percentage of chain restaurants in Trump-voting areas is approximately 43.69%. mean of y (`Clinton$chain_pct`): The mean percentage of chain restaurants in Clinton-voting areas is approximately 39.24%.
+
+The Welch two-sample t-test results support the alternative hypothesis that there is a significant difference in the mean percentages of chain restaurants between Trump-voting and Clinton-voting MSAs. Specifically, the data suggests that Trump-voting MSAs have a higher average percentage of chain restaurants compared to Clinton-voting MSAs. The t-value, p-value, confidence interval, and sample means all indicate that this difference is statistically significant. This finding reflects differences in market structure, consumer preferences, and urban form between politically conservative and liberal regions, with chain restaurants playing a more prominent role in the dining landscape of Trump-voting MSAs.
+
+## (Optional) Visualize Mean-Difference through base R
+
+The code below uses base R syntax to visualize the distribution of percent chain in Trump versus Clinton MSAs. Note that the y-axis frequency means the count of MSAs in each histogram bin, rather than the frequency of the restaurants. 
+
+```{r warning=FALSE, message=FALSE}
+# Plot histogram for Trump-voting areas
+hist(Trump$chain_pct, breaks = 15, col = rgb(0, 0, 1, 0.5), na.rm = TRUE,
+     main = "Histogram of Chain Restaurant Percentage",
+     xlab = "Percentage of Chain Restaurants", ylab = "Frequency")
+
+# Add histogram for Clinton-voting areas
+hist(Clinton$chain_pct, breaks = 15, col = rgb(1, 0, 0, 0.5), add = TRUE)
+
+# Add vertical lines for means
+abline(v = mean(Trump$chain_pct, na.rm = TRUE), col = "blue", lwd = 2)
+abline(v = mean(Clinton$chain_pct, na.rm = TRUE), col = "red", lwd = 2)
+
+# Add legend
+legend("topright", legend = c("Trump-voting areas", "Clinton-voting areas"),
+       fill = c(rgb(0, 0, 1, 0.5), rgb(1, 0, 0, 0.5)),
+       border = NA)
+```
+
+<span style="color:purple">[zhixuan's comment]: `hist()` has no `na.rm` argument, so `na.rm = TRUE` above does nothing. R just warns "na.rm is not a graphical parameter", and `warning=FALSE` on this chunk hides that warning. You can drop it (this data has no NAs anyway). `mean([x], na.rm = TRUE)` in the `abline()` lines is fine, since `mean()` does take `na.rm`.</span>
+
+Not surprisingly, the means are quite different. This can be a sanity check to your t-test, but you should not rely on visualization to reach statistical conclusions. Such difference can mean something small if the sample size is big enough. 
+
+You might notice that this histogram looks different than the `ggplot2` example created below. The reason is that when layering graphics, base R takes the x-axis and y-axis from the first data layer (in this case, Trump data) as the default, and does not account for other layers added later. You will have to explicitly set x-axis and y-axis to accommodate for different data layers. That is why people use`ggplot2` for more advanced visualization because it is a smarter design. 
+
+## (Optional) Histogram Comparison through `ggplot2`
+
+The code below generates the same histogram comparison through `ggplot2`. The advantage of `ggplot2` is that it puts all graphic aesthetics in one place, rather than adding them one by one (like the Base R syntax).
+
+```{r warning=FALSE, message=FALSE}
+# Generate histogram using ggplot2
+library(ggplot2)
+
+# Generate histogram using ggplot2
+ggplot(chainness_joined, aes(x = chain_pct, fill = majority_vote))+
+  geom_histogram(position = "identity", alpha = 0.5, bins = 15) +
+  # add vertical lines
+  geom_vline(xintercept = mean(Trump$chain_pct, na.rm = TRUE), color = "blue", linetype = "solid", size = 1) +
+  geom_vline(xintercept = mean(Clinton$chain_pct, na.rm = TRUE), color = "red", linetype = "solid", linewidth = 1) +
+  # determine color for the fill variable 
+  scale_fill_manual(values = c("Trump" = "blue", "Clinton" = "red")) +
+  labs(title = "Histogram of Chain Restaurant Percentage",
+       x = "Percentage of Chain Restaurants",
+       y = "Frequency",
+       fill = "Voting Preference") +
+  theme_minimal()
+```
+
+<span style="color:purple">[zhixuan's comment]: the first `geom_vline()` uses `size = 1`, but the second uses `linewidth = 1`. Since ggplot2 3.4.0, line thickness is set with `linewidth`. `size` still works but is deprecated, and `warning=FALSE` on this chunk hides the deprecation warning. Use `linewidth` in your own code.</span>
+
+## Practice Questions
+
+We would like to know **whether the average percent chain between high-income MSAs and low-income MSAs are statistically different**. We designated MSAs with median household income above 50,000 as high-income MSAs, and those with median household income below 50,000 as low-income MSAs.
+
+Please create a new column called `income_group` in `chainness_joined` table that assigns value "high-income" to MSAs whose median household income is >= 50,000, and value "low-income" to MSAs whose median household income is <50,000. [Hint: Reference code from Lab3]
+
+<span style="color:purple">[zhixuan's comment]: the text above says "above 50,000" in one place and ">= 50,000" in another. Either way is fine here. No MSA in this dataset has a median income of exactly 50,000, so `>` and `>=` give the same groups.</span>
+
+<span style="color:purple">[zhixuan's hint]: do this step first. Q1--Q3 all need the `income_group` column. Add it to `chainness_joined` with `mutate()` + `ifelse()`, something like `chainness_joined <- chainness_joined |> mutate(income_group = ifelse([x] >= 50000, "high-income", "low-income"))`. Then run `table(chainness_joined$income_group)` to check the split and look for `NA`s.</span>
+
+### Q1 
+Aim: practice data visualization in R, especially as a tool to assess the normality of data.
+
+Plot a boxplot to examine the distribution of percent chain values for high-income and low-income MSAs. Based on the distribution, can t-tests be applied? [Hint: normality assumption]
+
+```{r}
+```
+
+### Q2
+Aim: practice selecting, formulating the hypotheses for, and running valid t-tests in R.
+
+We are interested in whether higher income MSAs are likely to have lower percent chain. What is the null and alternative hypothesis for a **two samples, one-tailed, t-tests**? [Hint: type `?t.test()` in console to read function documentation]
+
+&nbsp;
+
+### Q3
+
+Aim: practice interpreting the results of a t-test to answer research questions.
+
+Compute t-test results and what is your conclusion? [Hint: your t-statistics should be -6.5589]
+
+```{r}
+```
+
+&nbsp;
+&nbsp;

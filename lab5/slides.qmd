@@ -1,0 +1,452 @@
+---
+title: "Lab 5: Table Joins and T-tests"
+subtitle: "URP 506 Planning Methods"
+author: "Zhixuan"
+date: "Fall 2026"
+format:
+  revealjs:
+    theme: default
+    slide-number: true
+    code-line-numbers: false
+    fig-width: 9
+    fig-height: 4.2
+    fig-align: center
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(ggplot2)
+library(dplyr)
+
+# shared look for every plot in the deck (same as Lab 4)
+teal <- c(light = "#c3f3ec", mid1 = "#92ebe0", mid2 = "#4dd8c8", dark = "#35cdb9")
+navy <- "#1f3a60"
+
+theme_lab <- theme_classic(base_size = 18) +
+  theme(axis.line = element_line(linewidth = 0.8))
+```
+
+## Roadmap
+
+1. Logistics
+2. Recap: hypothesis testing
+3. Today's data
+4. Table joins
+5. Reading `?t.test`
+6. From hypothesis to R code
+7. Checking normality with box plots
+8. Writing up the result
+
+# Logistics
+
+## Statistical Debate: team sign-up
+
+- Rank all **8 positions**: 4 topics $\times$ Proposition/Opposition
+- **Due:** Sun 10/4, 11:59 PM
+- **Teams announced:** Thu 10/8
+
+**Form:** [forms.gle/WZM22k9ADucqWoJR7](https://forms.gle/WZM22k9ADucqWoJR7)
+
+::: {.notes}
+Teams of 4 to 5; two teams debate opposite sides of the same topic. Read the four topic prompts in the debate assignment before ranking. We'll do our best to match top choices, but placement isn't guaranteed. The reason it's due Sunday: you need your topic before you start the Census Analysis, which is individual but should connect to your team's topic.
+:::
+
+## Logistics
+
+- **Lab 5 due:** Thu 10/8, 10:00 AM
+- **Labs 1--3 grades:** posted on Canvas
+  - Missing a grade? Let me know
+  - Resubmit for a **free regrade**
+- **Lab 4 grades:** in progress; Ready this Sunday
+- **Lab Slides Format**
+
+# Recap: Hypothesis Testing
+
+## Setting up the hypotheses
+
+- $H_0$: no difference, no effect. The default.
+- $H_a$: the claim you want evidence for.
+- **One-tailed**: the question has a direction (higher, lower, reduced)
+- **Two-tailed**: only "different?"
+
+::: {style="font-size: 75%;"}
+**Example:** Is the average commute in a city **longer** than 20 minutes?
+
+- $H_0$: $\mu = 20$
+- $H_a$: $\mu > 20$ -> "longer" has a direction, so **one-tailed**
+:::
+
+::: {.notes}
+Quick recap of Tuesday, only what we need today. The logic is proof by contradiction: assume H0, ask how surprising the data would be. In the example, H0 is the boring default, average commute is 20 minutes. Ha is the claim, it's longer. "Longer" is a direction, so one-tailed. If the question were just "is it different from 20", that's two-tailed.
+:::
+
+## Making the decision
+
+- $p < 0.05$ -> reject $H_0$
+- $p \geq 0.05$ -> fail to reject $H_0$
+- Never "accept $H_0$"
+- $\mu$ is the **population** mean we want to infer. `mean of x` in R output is the **sample** mean.
+
+::: {style="font-size: 75%;"}
+**Example:** survey 100 commuters -> sample mean 23 min, $p = 0.01$
+
+- $0.01 < 0.05$ -> reject $H_0$
+- Evidence the average commute **for all commuters** ($\mu$) is longer than 20 min
+:::
+
+::: {.notes}
+Two wording rules: we reject or fail to reject, we never accept H0, and we never "prove" Ha. If p had been 0.30, we'd fail to reject, which does not mean the average is 20, just that we don't have enough evidence it's longer. One notation point that matters for writing hypotheses: mu is the true population mean, which we can't compute. 23 is the sample mean, which is what R prints. The test uses the sample mean to make a claim about mu.
+:::
+
+## Where the rejection region lives
+
+```{r}
+#| label: fig-tails
+#| echo: false
+#| fig-height: 3.6
+tt <- data.frame(x = seq(-4, 4, length.out = 801))
+tt$y <- dt(tt$x, df = 30)
+c1 <- qt(0.95, 30)
+c2 <- qt(0.975, 30)
+panels <- c("H[a]*':'~mu < mu[0]", "H[a]*':'~mu != mu[0]", "H[a]*':'~mu > mu[0]")
+
+tails <- rbind(
+  transform(tt, panel = panels[1], shade = x <= -c1),
+  transform(tt, panel = panels[2], shade = abs(x) >= c2),
+  transform(tt, panel = panels[3], shade = x >= c1)
+)
+tails$panel <- factor(tails$panel, levels = panels)
+
+labs_df <- data.frame(
+  panel = factor(panels[c(1, 2, 2, 3)], levels = panels),
+  x = c(-2.9, -3, 3, 2.9), y = 0.07,
+  label = c("5%", "2.5%", "2.5%", "5%")
+)
+
+ggplot(tails, aes(x, y)) +
+  geom_area(fill = teal["light"]) +
+  geom_ribbon(aes(ymin = 0, ymax = ifelse(shade, y, NA)), fill = teal["dark"]) +
+  geom_line(linewidth = 0.8) +
+  geom_text(data = labs_df, aes(x, y, label = label), size = 5, colour = navy) +
+  facet_wrap(~panel, labeller = label_parsed) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0, 0.43)) +
+  labs(x = "t", y = NULL) +
+  theme_lab +
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+        axis.line.y = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 16))
+```
+
+Shaded = 5% rejection region. $t$ lands there $\iff$ $p < 0.05$ -> reject $H_0$.
+
+::: {.notes}
+Same t distribution, three alternative hypotheses. With Ha: mu > mu0, like the commute example, all 5 percent sits in the right tail, so only large positive t values reject. mu < mu0 is the mirror image. Two-tailed splits it, 2.5 percent each side. Link to the p-value: t falls in the shaded area exactly when p < 0.05. The p-value is the area beyond your t, in the direction of Ha. One practical point: R's p-value is already computed for the alternative you chose. Compare it to 0.05 directly. Don't halve it or double it yourself.
+:::
+
+## Check-in
+
+A city wants to know whether a new bus-priority program **reduced** average bus travel time. Researchers sample bus trips before implementation and a **separate** sample of trips after.
+
+A.  One sample, one-tailed
+B.  One sample, two-tailed
+C.  Two samples, one-tailed
+D.  Two samples, two-tailed
+
+::: {.fragment}
+**C.** Two independent samples (before trips $\neq$ after trips), and "reduced" has a direction.
+:::
+
+# Today's Data
+
+## Chain restaurants by metro area
+
+**Question:** What kinds of places have more chain restaurants?
+
+- One row per **MSA** (metro area), 380 in total
+- `chainness`: `chain_pct` = share of restaurants that are chains (0 to 1)
+- `factors`: `majority_vote` (Trump / Clinton, 2016), `median_income`, ...
+- Both tables share the key `MSA_GEOID`
+
+**Plan:** join the two tables -> compare `chain_pct` across groups with t-tests
+
+::: {.notes}
+Most of you haven't read the handout yet, so here's the setup. The data come from Xiaofan's research on "McCities": which places have an independent food culture and which are dominated by chains. A restaurant counts as a chain if it has more than five outlets nationwide. chain_pct is a proportion, so 0.42 means 42 percent of restaurants are chains. The outcome lives in one table and the place characteristics live in another, which is why we need a join first. The handout's examples compare Trump vs Clinton MSAs; your practice questions compare high- vs low-income MSAs.
+:::
+
+# Table Joins
+
+## Combining two tables by a key
+
+```{r}
+#| label: join-toy
+#| echo: false
+x <- data.frame(A = c("a", "b", "c"), B = c("t", "u", "v"), C = 1:3)
+y <- data.frame(A = c("a", "b", "d"), D = c(3, 2, 1))
+```
+
+::: {.columns}
+::: {.column width="33%"}
+**x**
+```{r}
+#| echo: false
+x
+```
+:::
+::: {.column width="33%"}
+**y**
+```{r}
+#| echo: false
+y
+```
+:::
+::: {.column width="34%"}
+**`left_join(x, y, by = "A")`**
+```{r}
+#| echo: false
+left_join(x, y, by = "A")
+```
+:::
+:::
+
+Keep every row of **x**; bring in **y**'s columns where the key matches; `NA` where it doesn't.
+
+::: {.notes}
+Column A is the key, shared by both tables. left_join keeps all of x. a and b match, so they get D. c has no match in y, so D is NA. d exists only in y, so it's dropped. In the lab, x is chainness, y is factors, and the key is MSA_GEOID.
+:::
+
+## Four joins, one question: whose rows do you keep?
+
+| Function | Keeps rows from |
+|---|---|
+| `left_join(x, y)` | all of **x** |
+| `right_join(x, y)` | all of **y** |
+| `inner_join(x, y)` | only keys in **both** |
+| `full_join(x, y)` | keys in **either** |
+
+In the lab:
+
+```{r}
+#| eval: false
+chainness_joined <- chainness |> left_join(factors, by = "MSA_GEOID")
+nrow(chainness); nrow(chainness_joined)        # same? good
+sum(is.na(chainness_joined$majority_vote))     # any MSAs that didn't match?
+```
+
+::: {.notes}
+Left join is the one you'll use most: you have your main table and you're adding columns to it. Two sanity checks every time you join. First, the row count shouldn't change with a left join on a unique key; if it grows, your key isn't unique in y. Second, check for NAs in a column you brought in; that tells you how many rows failed to match.
+:::
+
+# Reading `?t.test`
+
+## The function signature
+
+```r
+t.test(x, y = NULL,
+       alternative = c("two.sided", "less", "greater"),
+       mu = 0, paired = FALSE, var.equal = FALSE,
+       conf.level = 0.95, ...)
+```
+
+::: {style="font-size: 75%;"}
+| Argument | Meaning | Default |
+|---|---|---|
+| `x` | first group (required) | none |
+| `y` | second group | `NULL` -> one-sample |
+| `alternative` | your $H_a$ | `"two.sided"` |
+| `mu` | value in $H_0$ | `0` |
+| `var.equal` | equal variances? | `FALSE` -> Welch |
+:::
+
+`t.test()` does 2 jobs at once: **test** ($p$-value) and **estimate** (confidence interval). See the handout for reading the CI.
+
+::: {.notes}
+Anything with an equals sign has a default; x has none, so it's required. If you don't give y, R runs a one-sample test. alternative is the one we'll spend the most time on. mu is the value in the null hypothesis. var.equal FALSE means R runs the Welch version by default, which doesn't assume the two groups have equal spread. That's why the df in the handout's two-sample output is 371.63, not a whole number. conf.level only sets the width of the confidence interval, the estimation job. It does not change the p-value or the 0.05 cutoff. Students don't need to set it.
+:::
+
+## Arguments are matched by position
+
+```{r}
+#| eval: false
+t.test(chainness_joined$chain_pct, mu = 0.5, alternative = "greater")  # works
+t.test(chainness_joined$chain_pct, 0.5, alternative = "greater")       # error
+```
+
+```
+Error in t.test.default(chainness_joined$chain_pct, 0.5, alternative = "greater") :
+  not enough 'y' observations
+```
+
+- Without `mu =`, R reads `0.5` as the **second** argument: `y`
+- `chain_pct` runs from **0 to 1**. The benchmark is `0.5`, not `50`
+
+::: {.notes}
+Unnamed arguments fill the slots in order. The second slot is y, so 0.5 becomes a "second sample" with one observation, and R complains. Name your arguments and this never happens. Second trap: chain_pct is a proportion. If you write mu = 50, R runs without complaint and gives you t around minus ten thousand. No error, just a nonsense result, which is worse.
+:::
+
+# From Hypothesis to R Code
+
+## x, y, and `alternative`
+
+- **x**: first group you pass in. **y**: second group.
+- `alternative` **is** your $H_a$, always stated as **x relative to y**:
+
+| `alternative` | $H_a$ |
+|---|---|
+| `"two.sided"` | $\mu_x \neq \mu_y$ |
+| `"greater"` | $\mu_x > \mu_y$ |
+| `"less"` | $\mu_x < \mu_y$ |
+
+Which group is x is decided by **position**, not by the variable name.
+
+::: {.notes}
+This is the most important slide today. x is whatever you put first, y is whatever you put second. The alternative argument describes x compared to y. So the same research question can be written two ways, depending on order, and the alternative has to match the order you chose.
+:::
+
+## Translate the question
+
+::: {style="font-size: 75%;"}
+| Question | $H_a$ | R |
+|---|---|---|
+| Is the average chain % above 50%? | $\mu > 0.5$ | `t.test(x, mu = 0.5, alternative = "greater")` |
+| Do Trump and Clinton MSAs differ? | $\mu_T \neq \mu_C$ | `t.test(Trump, Clinton, alternative = "two.sided")` |
+| Do high-income MSAs have a **lower** chain %? | ? | ? |
+:::
+
+::: {.fragment}
+"Lower" has a direction -> **one-tailed**. You decide which group is x, then pick the matching `alternative`. That's Q2--Q3.
+:::
+
+::: {.notes}
+Don't give the answer: the last row is Q2 and Q3. Ask the room only what kind of test it is. "Lower" is a direction, so one-tailed. Then point them back to the x, y, alternative table: once they pick which group goes first, the alternative follows.
+:::
+
+## Order matters, conclusion doesn't
+
+```{r}
+#| eval: false
+t.test(Trump$chain_pct, Clinton$chain_pct, alternative = "greater")
+t.test(Clinton$chain_pct, Trump$chain_pct, alternative = "less")
+```
+
+- Same p-value, same conclusion
+- **$t$ flips sign**: positive in the first, negative in the second
+- Swap the order but keep the alternative -> you're testing the **opposite** question
+
+::: {.notes}
+Both lines test the same hypothesis. The only difference is the sign of t. The mistake to avoid is flipping the order and forgetting to flip the alternative. Then you're asking whether Trump MSAs have fewer chains, and you'll get a p-value near 1.
+:::
+
+# Checking Normality
+
+## Reading a box plot for normality
+
+```{r}
+#| label: fig-normality
+#| echo: false
+#| fig-height: 3.4
+set.seed(506)
+shape_df <- data.frame(
+  group = factor(rep(c("Right-skewed", "Roughly symmetric"), each = 200),
+                 levels = c("Right-skewed", "Roughly symmetric")),
+  value = c(0.15 + rexp(200, rate = 8), rnorm(200, mean = 0.4, sd = 0.08))
+)
+
+ggplot(shape_df, aes(x = value, y = group)) +
+  geom_boxplot(fill = teal["light"], colour = navy, linewidth = 0.8) +
+  labs(x = "value", y = NULL) +
+  theme_lab
+```
+
+- Median line near the **middle** of the box?
+- Whiskers about the **same length**?
+- **Few** points beyond the whiskers?
+
+::: {.notes}
+Top: right-skewed. The median sits toward the left edge of the box, the right whisker is much longer, and there are lots of points trailing off to the right. Bottom: roughly symmetric. Median in the middle, whiskers balanced, a handful of dots, which is normal for a normal. A box plot is a quick visual check, not a formal test.
+:::
+
+## Box plot + sample size
+
+- Mild skew + **large** $n$ (rule of thumb: 30+ per group) -> t-test is fine (Central Limit Theorem)
+- Severe skew **and** small $n$ -> use a rank-based test (Mann-Whitney U)
+- How many MSAs are in each of your groups? Check with `table()`
+
+::: {.notes}
+Tie it back to last week. The t-test cares about the distribution of the sample mean, and with large n the CLT takes care of that. Don't tell them the group sizes; let them check with table(). A good Q1 answer has two parts: what the box plot shows, and whether the sample size makes the t-test reasonable.
+:::
+
+# Writing Up the Result
+
+## Reading the output
+
+```
+	Welch Two Sample t-test
+
+data:  Trump$chain_pct and Clinton$chain_pct
+t = 5.0265, df = 371.63, p-value = 7.783e-07
+alternative hypothesis: true difference in means is not equal to 0
+95 percent confidence interval:
+ 0.02706139 0.06183976
+sample estimates:
+mean of x mean of y 
+0.4368695 0.3924190 
+```
+
+- **$t$**: direction ($+$ means $x > y$) and size
+- **p-value**: compare to $0.05$
+- **CI**: range for $\mu_x - \mu_y$; excludes 0 -> significant
+- **sample estimates**: the two sample means
+
+::: {.notes}
+Four things to pull out. t is positive, so Trump MSAs, which are x, have the higher mean. p is far below 0.05, so we reject H0. The confidence interval is for the difference in means, about 2.7 to 6.2 percentage points, and it doesn't include zero, which agrees with the p-value. The sample means are 43.7 and 39.2 percent chain. df is a decimal because it's the Welch test.
+:::
+
+## Four layers of interpretation
+
+1. **Report**: $t = 5.03$, $p < 0.001$, 95% CI $[0.027, 0.062]$
+2. **Unpack**: chain_pct = share of an MSA's restaurants that belong to chains
+3. **Statistical**: reject $H_0$; Trump-majority MSAs average about 4.4 points higher percent chain
+4. **Context**: what this means for the research question about independent food culture
+
+Aim for all four in Q3.
+
+::: {.notes}
+This is the rubric from Xiaofan's lab slides. Most people stop at layer 1 or 3. Layer 4 is where you connect it back to the planning question: what kinds of places have more chains.
+:::
+
+## Two traps
+
+**1. Fail to reject $\neq$ evidence for the opposite**
+
+`alternative = "greater"` with $p = 1$ -> **fail to reject $H_0$**. It does *not* show the mean is significantly *less* than $0.5$. To claim that, run `alternative = "less"`.
+
+The handout's one-sample write-up gets this wrong. Don't copy that sentence.
+
+**2. Association $\neq$ cause**
+
+A t-test shows the groups differ. It doesn't tell you *why* (market structure, preferences, urban form). Mechanisms are hypotheses, not findings.
+
+::: {.notes}
+First trap. A one-tailed test only looks in one direction. A p-value of 1 means the data give no support for "greater", and that's all. It's tempting to say "so it's significantly less", but that's a different test with a different alternative. Second trap. Income groups differ in many ways at once. Say "associated with", and if you want to propose a reason, frame it as a possible explanation.
+:::
+
+# Next
+
+## Next
+
+1. Create `income_group` with `mutate()` + `ifelse()` (see Lab 3)
+2. Do the practice questions
+3. **Self-check for Q3**: $t$ should be $\mathbf{-6.5589}$. Getting $+6.5589$? Check your x/y order and `alternative`.
+4. Complete the quiz: **Canvas -> Assignments -> Lab 5**, due by next lab
+
+Feel free to leave once you're done.
+
+::: {.notes}
+For income_group: mutate a new column, ifelse on median_income greater than or equal to 50000, "high-income" else "low-income". Then table() it to check the split and look for NAs. Then filter into high and low, the same way the handout splits Trump and Clinton.
+:::
