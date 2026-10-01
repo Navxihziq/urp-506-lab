@@ -57,7 +57,7 @@ The columns of the chainness dataset include the following:
 # load tidyverse libraries 
 library(tidyverse)
 # import data
-chainness <- read.csv("chainness_by_MSA.csv")
+chainness <- read.csv("data/chainness_by_MSA.csv")
 head(chainness)
 ```
 
@@ -73,7 +73,7 @@ The column of the factor dataset includes the following:
 * **walkscore**: Walk Score, which is a third party score to describe the walkability of an area. It ranges from 0 and 100, and 100 means the most walkable. 
 
 ```{r}
-factors <- read.csv("factors_by_MSA.csv")
+factors <- read.csv("data/factors_by_MSA.csv")
 head(factors)
 ```
 

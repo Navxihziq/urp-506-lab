@@ -448,7 +448,7 @@ chain restaurants.</li>
 # load tidyverse libraries 
 library(tidyverse)
 # import data
-chainness &lt;- read.csv(&quot;chainness_by_MSA.csv&quot;)
+chainness &lt;- read.csv(&quot;data/chainness_by_MSA.csv&quot;)
 head(chainness)</code></pre>
 <pre><code>##   MSA_GEOID                    MSA_NAME avg_frequency chain_pct
 ## 1     10180                 Abilene, TX      1891.306 0.5220418
@@ -475,7 +475,7 @@ Census</li>
 to describe the walkability of an area. It ranges from 0 and 100, and
 100 means the most walkable.</li>
 </ul>
-<pre class="r"><code>factors &lt;- read.csv(&quot;factors_by_MSA.csv&quot;)
+<pre class="r"><code>factors &lt;- read.csv(&quot;data/factors_by_MSA.csv&quot;)
 head(factors)</code></pre>
 <pre><code>##   MSA_GEOID trump_pct majority_vote median_income pop_density walkscore
 ## 1     10180 0.7430254         Trump      45866.06    1915.434  32.93527
