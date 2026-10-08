@@ -8,6 +8,9 @@ editor_options:
 **Xiaofan Liang** 
 **July 30th, 2025**
 
+**and Zhixuan Qi**
+**Updated on Oct 8th, 2026**
+
 ## Learning Objectives
 By the end of this practical lab you will be able to:
 
