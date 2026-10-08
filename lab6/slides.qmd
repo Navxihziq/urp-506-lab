@@ -1,0 +1,414 @@
+---
+title: "Lab 6: ANOVA and Chi-square Tests"
+subtitle: "URP 506 Planning Methods"
+author: "Zhixuan Qi"
+date: "Fall 2026"
+date-format: "[Fall] YYYY"
+format:
+  revealjs:
+    theme: default
+    slide-number: true
+    code-line-numbers: false
+    fig-width: 9
+    fig-height: 4.2
+    fig-align: center
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(chisq.posthoc.test)
+
+# shared look for every plot in the deck (same as Lab 4 and 5)
+teal <- c(light = "#c3f3ec", mid1 = "#92ebe0", mid2 = "#4dd8c8", dark = "#35cdb9")
+navy <- "#1f3a60"
+
+theme_lab <- theme_classic(base_size = 18) +
+  theme(axis.line = element_line(linewidth = 0.8))
+
+# same data prep as the handout
+chainness_joined <- read.csv("chainness_by_MSA_joined.csv")
+walk_breaks <- quantile(chainness_joined$walkscore, probs = c(0, 0.33, 0.66, 1))
+chainness_joined <- chainness_joined |>
+  mutate(
+    walkability_level = cut(walkscore, breaks = walk_breaks,
+                            labels = c("low-walkability", "middle-walkability", "high-walkability"),
+                            include.lowest = TRUE),
+    chain_level = cut(chain_pct,
+                      breaks = quantile(chain_pct, probs = c(0, 0.33, 0.66, 1)),
+                      labels = c("low-chain", "middle-chain", "high-chain"),
+                      include.lowest = TRUE)
+  )
+
+anova_result <- aov(chain_pct ~ walkability_level, data = chainness_joined)
+tukey_result <- TukeyHSD(anova_result)
+contingency_table <- table(chainness_joined$chain_level, chainness_joined$walkability_level)
+chi_square_result <- chisq.test(contingency_table)
+posthoc_result <- chisq.posthoc.test(contingency_table, method = "bonferroni")
+```
+
+## Roadmap
+
+1. Logistics
+2. Which test?
+3. Today's data: from numbers to groups
+4. ANOVA + Tukey post-hoc
+5. Chi-square + post-hoc residuals
+6. Writing up the result
+
+# Logistics
+
+## I'm traveling this week
+
+- I'm away at a conference
+- I miss you all so much it hurts
+
+::: {.notes}
+Say hi. Questions during the week: email or Canvas, I'll still answer, just a bit slower than usual.
+:::
+
+## Logistics
+
+- **Sorry** for not grading in time. My butt was on fire for the conference.
+- **Lab 6 due:** Thu 10/15, 10:00 AM
+- **Course site:** please check it out! [navxihziq.github.io/urp-506-lab](https://navxihziq.github.io/urp-506-lab/)
+
+# Which Test?
+
+## Match the test to the variables
+
+::: {style="font-size: 80%;"}
+| Outcome | Groups | Test | Lab |
+|---|---|---|---|
+| Continuous (a mean) | 2 groups | t-test, `t.test()` | 5 |
+| Continuous (a mean) | 3+ groups | ANOVA, `aov()` | 6 |
+| Categorical (counts) | categorical | Chi-square, `chisq.test()` | 6 |
+:::
+
+::: {.fragment}
+**Check-in:** Do average commute times differ across **four** neighborhoods? Which test?
+:::
+
+::: {.fragment}
+**ANOVA.** The outcome is a mean (continuous), and there are more than 2 groups.
+:::
+
+::: {.notes}
+Bridge from last week. Why not just run t-tests for every pair? With 3 groups that's 3 tests, and each one has a 5% chance of a false positive, so the chance of at least one false alarm grows. ANOVA asks one question about all groups at once. Chi-square is for when both variables are categories, like survey answers.
+:::
+
+# Today's Data
+
+## Same data, new groups
+
+- Same 380 MSAs as Lab 5, already joined: `chainness_by_MSA_joined.csv`
+- No column has 3+ groups, so we **make** one: split `walkscore` at the 33rd and 66th percentiles
+
+```{r}
+#| eval: false
+chainness_joined <- chainness_joined |>
+  mutate(walkability_level = cut(
+    walkscore,
+    breaks = quantile(walkscore, probs = c(0, 0.33, 0.66, 1)),
+    labels = c("low-walkability", "middle-walkability", "high-walkability"),
+    include.lowest = TRUE
+  ))
+```
+
+- `quantile()` finds the cut points; `cut()` puts each MSA in a bin
+
+::: {.notes}
+quantile() returns four numbers here: the minimum, the 33rd percentile, the 66th percentile, and the maximum. cut() uses them as bin edges. include.lowest = TRUE makes sure the MSA with the very lowest walk score lands in the first bin instead of becoming NA. The handout does the same thing to chain_pct to get chain_level for the chi-square test.
+:::
+
+## What `cut()` does
+
+```{r}
+#| label: fig-cut
+#| echo: false
+#| fig-height: 3.8
+ggplot(chainness_joined, aes(x = walkscore, fill = walkability_level)) +
+  geom_histogram(bins = 40, colour = "white", boundary = 0) +
+  geom_vline(xintercept = walk_breaks[2:3], linewidth = 0.8, linetype = "dashed", colour = navy) +
+  scale_fill_manual(values = c(unname(teal[c("light", "dark")]), navy)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  labs(x = "Walk Score", y = "Number of MSAs", fill = NULL) +
+  theme_lab +
+  theme(legend.position = "top")
+```
+
+About a third of the MSAs in each group: `r paste(table(chainness_joined$walkability_level), collapse = " / ")`
+
+::: {.notes}
+The dashed lines are the 33rd and 66th percentiles. Note the groups are equal in size, not equal in width: the high-walkability bin stretches all the way to 70. Turning a continuous variable into groups throws information away. We do it here to demo the tests, not because it's the best analysis for this data.
+:::
+
+# ANOVA
+
+## Difference in means, 3+ groups
+
+```{r}
+#| label: fig-anova-box
+#| echo: false
+#| fig-height: 3.6
+ggplot(chainness_joined, aes(x = walkability_level, y = chain_pct)) +
+  geom_boxplot(fill = teal["light"], colour = navy, linewidth = 0.8) +
+  stat_summary(fun = mean, geom = "point", shape = 18, size = 5, colour = teal["dark"]) +
+  labs(x = NULL, y = "chain_pct") +
+  theme_lab
+```
+
+- $H_0$: $\mu_{low} = \mu_{middle} = \mu_{high}$
+- $H_a$: **at least one** mean is different
+
+::: {.notes}
+Groups on the x-axis, a continuous outcome on the y-axis, the diamonds are the group means. H0 is that all three population means are equal. Ha is not "they're all different", it's "at least one differs". Keep that in mind, because it explains why we need a post-hoc test.
+:::
+
+## Running ANOVA
+
+```{r}
+anova_result <- aov(chain_pct ~ walkability_level, data = chainness_joined)
+summary(anova_result)
+```
+
+- `outcome ~ group`: left of `~` is the dependent variable
+- $p$ = `Pr(>F)` = 1.36e-14 < 0.05 -> reject $H_0$
+- But ANOVA **doesn't say** which group is higher or lower
+
+::: {.notes}
+Read the formula as "chain_pct explained by walkability_level". Df: 2 for the groups (3 minus 1), 377 for the residuals (380 minus 3). F compares the spread between group means to the spread within groups; big F means the group means are far apart relative to the noise. The p-value is what you report. And the punchline from Xiaofan's slides: significant, but it doesn't tell you which group is which. That's the post-hoc test's job.
+:::
+
+## Post-hoc: Tukey HSD
+
+```{r}
+#| eval: false
+TukeyHSD(anova_result)
+```
+
+::: {style="font-size: 75%;"}
+```{r}
+#| echo: false
+tukey_result$walkability_level
+```
+:::
+
+- **diff**: first group minus second (`middle-low` = middle $-$ low)
+- **lwr, upr**: 95% CI of the difference; **excludes 0** -> significant
+- **p adj**: $p$-value adjusted for running 3 comparisons
+
+::: {.notes}
+One row per pair. The name tells you the order: middle-walkability-low-walkability means middle minus low. So the -0.047 says middle-walkability MSAs average about 4.7 percentage points lower chain_pct than low-walkability MSAs. The CI runs from -7.2 to -2.3 points, which doesn't include 0, so it's significant. p adj is adjusted for doing several comparisons at once; it's the probability of a difference at least this big if the two group means were actually equal.
+:::
+
+## Plotting the post-hoc test
+
+```{r}
+#| label: fig-tukey
+#| echo: false
+#| fig-height: 3.4
+tukey_df <- as.data.frame(tukey_result$walkability_level)
+tukey_df$Comparison <- factor(c("Middle - Low", "High - Low", "High - Middle"),
+                              levels = c("High - Middle", "High - Low", "Middle - Low"))
+
+ggplot(tukey_df, aes(x = diff, y = Comparison)) +
+  geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.8, colour = navy) +
+  geom_errorbar(aes(xmin = lwr, xmax = upr), width = 0.2, linewidth = 0.8, colour = navy) +
+  geom_point(size = 5, colour = teal["dark"]) +
+  labs(x = "Difference in mean chain_pct (95% CI)", y = NULL) +
+  theme_lab
+```
+
+- Point = mean difference; bar = CI
+- Every bar is **left of 0**: higher walkability -> lower chain_pct, all 3 pairs significant
+
+::: {.notes}
+Same numbers as the table, easier to read. Negative means the first group is lower. So High - Low at about -0.085 means low-walkability MSAs have the higher percent chain. If a bar crossed the dashed line, that pair would not be significant. High vs Low is the biggest gap; High vs Middle is the smallest. The handout's base R plot(tukey_result) shows the same thing, just harder to style.
+:::
+
+## Check-in
+
+`high-walkability-low-walkability`: diff $= -0.085$, CI $[-0.109, -0.061]$
+
+Which group has the **higher** average chain_pct, and is the difference significant?
+
+::: {.fragment}
+**Low-walkability**, by about 8.5 percentage points. Diff = high $-$ low is negative, and the CI excludes 0 -> significant.
+:::
+
+# Chi-square
+
+## Observed vs. expected counts
+
+::: {.columns}
+::: {.column width="50%"}
+**Observed** (`table()`)
+
+::: {style="font-size: 60%;"}
+```{r}
+#| echo: false
+contingency_table
+```
+:::
+:::
+::: {.column width="50%"}
+**Expected** if independent
+
+::: {style="font-size: 60%;"}
+```{r}
+#| echo: false
+round(chi_square_result$expected, 1)
+```
+:::
+:::
+:::
+
+$$\chi^2 = \sum \frac{(O - E)^2}{E}$$
+
+Big gaps between observed and expected -> big $\chi^2$ -> small $p$.
+
+::: {.notes}
+Chi-square works on counts, not means, so both variables are categories: chain_level and walkability_level. The left table is what we saw. The right table is what we'd expect if the two variables had nothing to do with each other: row total times column total divided by 380. Look at the corners: 70 high-chain, low-walkability MSAs where we'd expect about 43. The test adds up those gaps.
+:::
+
+## Running the chi-square test
+
+```{r}
+#| eval: false
+contingency_table <- table(chainness_joined$chain_level, chainness_joined$walkability_level)
+chisq.test(contingency_table)
+```
+
+```{r}
+#| echo: false
+chi_square_result
+```
+
+- $H_0$: chain level and walkability level are **independent**
+- $p$ = 2.078e-10 < 0.05 -> reject $H_0$: they are associated
+- df = (3 rows $-$ 1) $\times$ (3 cols $-$ 1) = 4
+- Again, it **doesn't say** which cells are higher or lower than expected
+
+::: {.notes}
+Same pattern as ANOVA: one overall test, then a post-hoc test to see where the difference comes from. For chi-square, the post-hoc works cell by cell.
+:::
+
+## Heads-up: installing `chisq.posthoc.test`
+
+The package was **removed from CRAN** this June, so `install.packages("chisq.posthoc.test")` fails. Install the archived version instead:
+
+```{r}
+#| eval: false
+install.packages(
+  "https://cran.r-project.org/src/contrib/Archive/chisq.posthoc.test/chisq.posthoc.test_0.1.2.tar.gz",
+  repos = NULL, type = "source"
+)
+library(chisq.posthoc.test)
+```
+
+::: {.notes}
+The error you'll see with the normal install is "package is not available for this version of R". The package itself still works fine; CRAN dropped it because the maintainer's email bounced. The line above installs it from CRAN's archive. It's pure R, so no extra tools are needed.
+:::
+
+## Post-hoc: residuals
+
+```{r}
+#| eval: false
+chisq.posthoc.test(contingency_table, method = "bonferroni")
+```
+
+::: {style="font-size: 65%;"}
+```{r}
+#| echo: false
+posthoc_result
+```
+:::
+
+- Not a contingency table: no counts. Each cell has a **residual** and a **$p$-value**
+- Residual **$-$** = fewer than expected; **$+$** = more than expected
+- $p$ < 0.05 -> that cell's gap is significant (adjusted for 9 cells)
+
+::: {.notes}
+Each count in the contingency table becomes two rows here. Residuals are standardized, so bigger in absolute value means a bigger gap between observed and expected. Bonferroni adjusts the p-values because we're testing 9 cells at once. Note this compares each cell to what we'd expect, not pairs of groups to each other.
+:::
+
+## Seeing the residuals
+
+```{r}
+#| label: fig-residuals
+#| echo: false
+#| fig-height: 3.8
+viz_data <- posthoc_result |>
+  filter(Value == "Residuals") |>
+  select(-Value) |>
+  pivot_longer(-Dimension, names_to = "walkability_level", values_to = "residual") |>
+  mutate(walkability_level = factor(walkability_level, levels = levels(chainness_joined$walkability_level)),
+         chain_level = factor(Dimension, levels = rev(levels(chainness_joined$chain_level))))
+
+ggplot(viz_data, aes(x = walkability_level, y = chain_level, fill = residual)) +
+  geom_tile(colour = "white", linewidth = 1.5) +
+  geom_text(aes(label = round(residual, 1), colour = residual < -3), size = 7, show.legend = FALSE) +
+  scale_colour_manual(values = c(`FALSE` = navy, `TRUE` = "white")) +
+  scale_fill_gradient2(low = navy, mid = "white", high = teal["dark"], midpoint = 0,
+                       limits = c(-6.5, 6.5)) +
+  labs(x = NULL, y = NULL, fill = "Residual") +
+  theme_lab +
+  theme(axis.line = element_blank(), axis.ticks = element_blank())
+```
+
+- **low-chain**: fewer than expected in low-walkability ($-4.8$), more in high-walkability ($+4.4$)
+- **middle-chain**: no significant gaps
+
+::: {.notes}
+Read across a row. Low-chain MSAs, the ones with more independent restaurants, are underrepresented among low-walkability MSAs and overrepresented among high-walkability ones; both p-values are tiny. The middle-walkability cell isn't significant. High-chain is the mirror image. Middle-chain has no significant cells at all. This is the same story the ANOVA told: more walkable places, fewer chains.
+:::
+
+# Writing Up the Result
+
+## Four layers, again
+
+1. **Report**: $F = 34.79$, $p < 0.001$; Tukey: all 3 pairs significant
+2. **Unpack**: chain_pct = share of an MSA's restaurants that belong to chains
+3. **Statistical**: reject $H_0$; high-walkability MSAs average about 8.5 points lower chain_pct than low-walkability MSAs
+4. **Context**: what this means for independent food culture in walkable places
+
+Same rubric as Lab 5. Aim for all four in Q1 and Q3.
+
+::: {.notes}
+Same structure as last week. For the chi-square, layer 1 is X-squared, df, and p; layer 3 is which cells are over- or underrepresented.
+:::
+
+## Three traps (the handout falls into them)
+
+**1. "Not due to random chance"** -> say **"unlikely to be due to chance alone"**. A $p$-value can't rule chance out.
+
+**2. "Influenced by"** -> say **"associated with"**. Neither test shows cause; population density could drive both.
+
+**3. Read the numbers, not the sentence.** The handout says high vs. middle is "the most significant" pair. It's the **smallest** gap ($-0.038$). High vs. low is the biggest ($-0.085$).
+
+::: {.notes}
+These are the purple comments in the handout. First trap: a p-value tells you how surprising the data would be if H0 were true. It never proves the difference is real. Second: walkable MSAs differ from car-oriented ones in many ways at once, like density, income, and age of the city. Third: always check the write-up against the output. The Tukey table is right there.
+:::
+
+# Next
+
+## Next
+
+1. Make `pop_density_level` the same way as `walkability_level` (`quantile()` + `cut()`)
+2. Do the practice questions: same steps, `pop_density` instead of `walkscore`
+3. **Self-check for Q2**: low-density + high-chain should be **67** MSAs
+4. Complete the quiz: **Canvas -> Assignments -> Lab 6**, due by next lab
+
+Feel free to leave once you're done.
+
+::: {.notes}
+Labels for the new column: "low-density", "middle-density", "high-density". If Q2 doesn't give 67, check the probs in quantile() and that include.lowest = TRUE is there. For Q1, look closely at the Tukey output: unlike walkability, not every pair is significant this time.
+:::

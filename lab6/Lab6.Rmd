@@ -1,0 +1,333 @@
+---
+title: "Lab6: ANOVA and Chi-square Tests"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+**Xiaofan Liang** 
+**July 30th, 2025**
+
+## Learning Objectives
+By the end of this practical lab you will be able to:
+
+* Run ANOVA tests with `aov()`
+* Conduct ANOVA posthoc tests (TukeyHSD) with `TukeyHSD()`
+* Create contingency table with `table()`
+* Run Chi-square tests with `chisq.test()` 
+* Conduct Chi-square posthoc tests with `chisq.posthoc.test()` 
+
+**CHEATSHEETS!** You are encouraged to download RStudio Cheatsheets. You can find them on RStudio website [here](https://posit.co/resources/cheatsheets/?type=posit-cheatsheets/), or a comprehensive list (more than what has been listed) [here](https://github.com/rstudio/cheatsheets/). For example, here you can find [base R syntax](https://rstudio.github.io/cheatsheets/base-r.pdf), [dplyr](https://rstudio.github.io/cheatsheets/data-transformation.pdf) (which contains most of the functions for data wrangling in tidyverse), and [ggplot2](https://rstudio.github.io/cheatsheets/data-visualization.pdf).  
+
+New functions are summarized below: 
+
+Functions              [Package If Any] Tasks   
+--------               --------------
+`cut()`                Divides a numeric vector into intervals, or labeled "bins"
+`aov()`                Performs one and two sample t-tests on vectors of data
+`TukeyHSD()`           Computes Tukey Honest Significant Differences, a posthoc analysis of the ANOVA model
+`table()`              Builds a contingency table of the counts at each combination of factor levels.
+`chisq.test()`         Performs Pearson's Chi-squared test for count data
+`chisq.posthoc.test()` [chisq.posthoc.test] Performs post hoc analysis based on residuals of Pearson’s Chi-squared test for count data.
+--------        --------------
+
+<span style="color:purple">[zhixuan's comment]: the `aov()` row above was copied from `t.test()` in Lab 5. `aov()` doesn't run t-tests. It fits an analysis of variance (ANOVA) model, which compares the means of three or more groups. Also, `quantile()` is used with `cut()` below but isn't in this table. It returns the values at given percentiles (here the 33rd and 66th), and `cut()` uses those values as the bin edges.</span>
+
+## ANOVA: Comparing Mean Difference between Three Groups or Above 
+
+In Lab 5, we learned to apply t-tests to see the statistical significance of mean difference between two groups. ANOVA is also used to compare mean difference but for more than two categorical groups. Let's pick a different variable, `walkscore`, and explores its relationship with chain restaurants. 
+
+**The goal of the following ANOVA analysis is to determine if there are statistically significant differences in the mean `chain_pct` between low-walkability, middle-walkability, and high-walkability MSAs**.
+
+### Set Environment and Import Data 
+```{r message=FALSE}
+# set environment 
+#setwd("/Users/xfliang/University of Michigan Dropbox/Xiaofan Liang/UM_Teaching/URP506_F25/Lab/Lab6/")
+# load tidyverse libraries 
+library(tidyverse)
+# import data
+chainness_joined <- read.csv('chainness_by_MSA_joined.csv')
+head(chainness_joined)
+```
+
+### Create a `walkability_level` column
+
+Our dataset does not have a column that contains more than two unique categorical values. For demonstration purposes, we will create a new column called `walkability_level` with values `low-walkability`, `middle-walkability`, and `high-walkability`. All MSAs are divided into three walkability groups using the `quantile()` and `cut()` function (run `?cut` to learn more). If a MSA’s walk score is between 0% and 33% percentiles, then it is considered as "low-walkability"; if between 33% to 66%, then "middle-walkability"; if between 66% to 100%, then "high-walkability". 
+
+```{r}
+# create a new walkability_level column in base R
+chainness_joined$walkability_level <- cut(
+  chainness_joined$walkscore,
+  breaks = quantile(chainness_joined$walkscore, probs = c(0, 0.33, 0.66, 1), na.rm = TRUE),
+  labels = c("low-walkability", "middle-walkability", "high-walkability"),
+  include.lowest = TRUE
+)
+
+# check if walkability_level column is created 
+head(chainness_joined)
+```
+
+Optionally, this is the syntax in `tidyverse`. `cut()` is a base R function. The difference lies in how you create a column (e.g., `mutate()` is a tidyverse function) and whether you call the dataset `chainness_joined` to retrieve columns. 
+
+```{r}
+# create a new walkability_level column
+chainness_joined <- chainness_joined %>% 
+  mutate(walkability_level = cut(
+    walkscore,
+    breaks = quantile(walkscore, probs = c(0, 0.33, 0.66, 1), na.rm=T),
+    labels = c("low-walkability", "middle-walkability", "high-walkability"),
+    include.lowest = TRUE
+  )) 
+```
+
+### ANOVA tests
+
+The `aov()` function in R is used to perform analysis of variance (ANOVA). The `aov()` function fits an ANOVA model to the data, examining how the mean percentage of chain restaurants (`chain_pct`) varies across different levels of walkability (`walkability_level`). The variable to the left of `~` symbol is the dependent variable. 
+
+```{r}
+# Perform ANOVA
+anova_result <- aov(chain_pct ~ walkability_level, data = chainness_joined)
+
+# Display the summary of the ANOVA test
+summary(anova_result)
+```
+
+### Interpret ANOVA test results 
+
+The ANOVA results table provides the following key statistics. **Among all the statistics, P-value (Pr(>F)) is the one used to most to determine the statistical significance of the test**. 
+* **Df**: The degrees of freedom for walkability_level is 2, indicating there are three levels of walkability (low, middle, and high). The degrees of freedom for Residuals is 377, representing the number of observations minus the number of groups.
+
+* **Sum Sq (Sum of Squares)**: walkability_level: 0.4647 is the variability in the percentage of chain restaurants that can be explained by the walkability levels. Residuals: 2.5177 is the variability that cannot be explained by the walkability levels (i.e., the within-group variability).
+
+* **Mean Sq (Mean Squares)**: walkability_level: 0.23235 is the average variability explained by the walkability levels. Residuals: 0.00668 is the average within-group variability.
+
+* **F value**: The F value of 34.79 indicates the ratio of the mean square of the walkability levels to the mean square of the residuals. A higher F value indicates that the variability between groups (walkability levels) is much larger than the variability within groups.
+
+* **p-value**: The p-value of 1.36e-14 is extremely small, far below the common significance level thresholds (e.g., 0.05, 0.01, 0.001). This indicates a very strong evidence against the null hypothesis.
+
+Again, you don't need to interpret every variable above in a statistical interpretation. The key one is **p-value** and it is often interpreted with original hypothesis in context. 
+
+For example, the ANOVA results show that there is a statistically significant difference in the percentage of chain restaurants among the different walkability levels. The extremely low p-value (1.36e-14) indicates that the differences observed are not due to random chance. Therefore, we reject the null hypothesis that the means of the percentage of chain restaurants are equal across the different levels of walkability.
+
+<span style="color:purple">[zhixuan's comment]: careful with "the differences observed are not due to random chance" above. A p-value can't prove that. It tells us that if the three group means were really equal, differences this large would almost never show up (p = 1.36e-14). So the safer wording is that the differences are very unlikely to be due to random chance alone.</span>
+
+### ANOVA posthoc test: Tukey's HSD test
+
+While ANOVA determines whether the mean difference is statistically significant, further post-hoc analysis (such as Tukey's HSD test) would be needed to determine which specific groups differ from each other. It is called a post-hoc analysis because you need to run the ANOVA model first. 
+
+```{r}
+# Perform Tukey's HSD test
+tukey_result <- TukeyHSD(anova_result)
+
+# Print the result
+print(tukey_result)
+```
+
+The Tukey HSD test results are shown for pairwise comparisons between the levels of walkability_level. Here's a breakdown of the first comparison (middle-walkability vs. low-walkability)
+
+* **Difference (diff)**: -0.04725876. This indicates that the mean percentage of chain restaurants in middle-walkability areas is approximately 4.73 percentage points lower than in low-walkability areas.
+
+* **Lower Bound (lwr)**: -0.07153316. The lower bound of the 95% confidence interval for the difference in means is approximately -7.15 percentage points.
+
+* **Upper Bound (upr)**: -0.02298436. The upper bound of the 95% confidence interval for the difference in means is approximately -2.30 percentage points.
+
+* **Adjusted p-value (p adj)**: 0.0000188. The p-value is very small, indicating that the difference in means is statistically significant at the 95% confidence level. The small p-value suggests that the observed difference is unlikely to be due to random chance.
+
+In summary: 
+
+The mean percentage of chain restaurants decreases significantly as walkability increases, with middle-walkability areas averaging about 4.73 percentage points lower than low-walkability areas, high-walkability areas about 8.53 points lower than low-walkability areas, and high-walkability areas about 3.80 points lower than middle-walkability areas.
+
+### Tukey's HSD test visualization (Optional)
+
+You can also visualize the results like below:
+
+```{r}
+# Optionally, you can visualize the results
+plot(tukey_result, cex.axis=0.55)
+```
+
+The easy base R `plot()` function can give you a quick visualization for TukeyHSD results, but you cannot edit the plot elements easily (e.g., change x-axis and y-axis labels) (see [this Stack Overflow post](https://stackoverflow.com/questions/60794019/how-to-edit-a-tukey-test-plot-in-r) for this annoying nuance). 
+
+The y-axis represents the pairs of groups being compared. Each label on the y-axis corresponds to a specific pairwise comparison between the levels of the independent variable (e.g., "high-walkability - middle-walkability"). 
+
+The x-axis represents the difference in means between the pairs of groups being compared. Each point on the x-axis shows the estimated difference in means between two levels of the independent variable (in this case, walkability_level).
+
+This plot, while easy to produce, is less intuitive to interpret. The optional section shows an advanced version. 
+
+```{r}
+tukey_df <- as.data.frame(tukey_result$walkability_level)
+tukey_df
+tukey_df$Comparison <- rownames(tukey_df)
+rownames(tukey_df) <- NULL
+
+tukey_df
+```
+
+We will use points to represent the mean difference and error bars to represent the range of 95% confidence interval. 
+
+```{r}
+# Create a ggplot visualization with a box plot
+ggplot(tukey_df, aes(x = Comparison, y = diff)) +
+  geom_point(size = 4) + 
+  geom_errorbar(aes(ymin = lwr, ymax = upr), width = 0.2) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Tukey HSD Test Results",
+       x = "Walkability Level Comparison",
+       y = "Mean Difference in Percent Chain") +
+  scale_x_discrete(labels = c("High vs Low", "High vs Middle", "Middle vs Low")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+<span style="color:purple">[zhixuan's comment]: the comment in the chunk above says "box plot", but this isn't a box plot. Each point is the mean difference for one pair, and each error bar is that pair's 95% confidence interval.</span>
+
+Now we can see that across all pairs, MSAs with higher walkability levels have lower percent chain (thus the negative Y-axis values). The differences are statistically significant, because even the confidence intervals (error bars) are lowered than the zero line. The percent chain mean difference between high and middle walkability MSAs is the most significant across all pairs.
+
+<span style="color:purple">[zhixuan's comment]: the last sentence above is backwards. High vs middle is the *smallest* difference (-0.038, p adj = 0.0007), and its error bar comes closest to the zero line. High vs low is the largest difference (-0.085) and has the smallest p-value, so that's the pair that stands out.</span>
+
+## Contingency Table 
+
+A contingency table, also known as a cross-tabulation or crosstab, is a type of table that displays the frequency distribution of variables. It helps in examining the relationship between two or more categorical variables by showing how the categories of one variable are distributed across the categories of another variable. It can also be used directly as an input for the Chi-square tests below. Each cell in the table represents the count or frequency of observations that fall into the corresponding categories.
+
+Our dependent variable, `chain_pct` is a continuous variable. To examine its relationship with other variables through contingency table and chi-square test, we will have to convert it into a categorical variable like `walkability_level`. Again, this is not the most effective technique for this dataset because our variables are mostly represented as continuous variables, but we will keep it simple for code demonstration. Chi-square tests are typically used for survey analysis because many survey questions are framed as categories. 
+
+```{r}
+# create a chain_level 
+chainness_joined$chain_level <- cut(
+    chainness_joined$chain_pct,
+    breaks = quantile(chainness_joined$chain_pct, probs = c(0, 0.33, 0.66, 1), na.rm=T),
+    labels = c("low-chain", "middle-chain", "high-chain"),
+    include.lowest = TRUE
+  )
+head(chainness_joined)
+
+# ---- tidyverse equivalent ----- # 
+# chainness_joined <- chainness_joined %>% mutate(
+#   chain_level = cut(
+#     chain_pct,
+#     breaks = quantile(chain_pct, probs = c(0, 0.33, 0.66, 1), na.rm=T),
+#     labels = c("low-chain", "middle-chain", "high-chain"),
+#     include.lowest = TRUE
+#   )) 
+```
+
+You can use `table()` function (base R) to create a contingency table for two categorical variables (i.e., `walkability_level` and `chain_level`). Type `?table()` in console and a help page will pop up under the Help tab on bottom right of the R Studio interface. Click on Cross Tabulation and Table Creation to see the details of the function. 
+
+```{r}
+contingency_table <- table(chainness_joined$chain_level, chainness_joined$walkability_level)
+contingency_table
+```
+
+You can also achieve the same data with a long table (rather than a wide table like above) using the `group_by()` and `summarise()` functions. 
+
+```{r}
+chainness_joined %>% group_by(chain_level, walkability_level) %>% summarise(n=n())
+```
+
+## Chi-square test 
+
+The **Chi-square test** is a statistical test used to determine if there is a significant association between two categorical variables. It is often used in conjunction with a contingency table to test the null hypothesis that the variables are independent, meaning there is no relationship between them.
+
+- **Test Statistic:** The Chi-square test statistic is calculated based on the difference between observed and expected frequencies in the contingency table. The formula is:
+
+  \[
+  \chi^2 = \sum \frac{(O_i - E_i)^2}{E_i}
+  \]
+
+  where \(O_i\) is the observed frequency, and \(E_i\) is the expected frequency for each cell in the table.
+
+When applied to the contingency table above, Chi-square tests can answer whether there is an association between MSAs' level of percent chain and level of walkability. 
+
+```{r}
+# Perform Chi-square test on the contingency table; this table corresponds to `income_group`
+chi_square_result <- chisq.test(contingency_table)
+
+# Display the results of the Chi-square test
+chi_square_result
+```
+
+<span style="color:purple">[zhixuan's comment]: the comment in the chunk above says the table "corresponds to `income_group`". That's left over from an older version of this lab. `contingency_table` is `chain_level` by `walkability_level`.</span>
+
+### Interpret Chi-square test results 
+
+Interpretations: 
+
+* **The X-squared statistic** measures the difference between the observed frequencies in the contingency table and the frequencies expected if `chain_level` and `walkability_level` were independent. 
+
+* **The degrees of freedom** for a chi-square test in a contingency table are calculated as  (number of rows−1)×(number of columns−1). In this case, the degrees of freedom are 4, indicating the table likely has 3 rows and 3 columns
+
+* **The p-value** indicates the probability of observing a chi-squared statistic as extreme as 51.149, or more so, under the null hypothesis that `chain_level` and `walkability_level` are independent. This strongly suggests that the observed association is highly unlikely to be due to chance.
+
+The chi-square test results indicate a highly significant association between `chain_level` and `walkability_level`. The extremely small p-value (2.078e-10) provides strong evidence against the null hypothesis of independence. This implies that the prevalence of chain restaurants is likely influenced by the walkability level of the area, or vice versa.
+
+<span style="color:purple">[zhixuan's comment]: careful with "influenced by" above. A chi-square test only shows that the two variables are associated. It can't tell us that walkability changes the chain level (or the other way around), since another factor, like population density, could drive both. "Associated with" is the safer wording.</span>
+
+### Chi-square posthoc test 
+
+There is a post-hoc test for chi-square tests to determine which specific pairs of categories are significantly different. One common approach is to use pairwise comparisons with adjusted p-values to control for multiple comparisons, similar to what is done in ANOVA post-hoc tests. The R package `chisq.posthoc.test` provides a function `chisq.posthoc.test()` that perform posthoc analysis based on residuals of the chi-square test.
+
+<span style="color:purple">[zhixuan's comment]: the text above says the posthoc test finds which "pairs of categories" differ, but `chisq.posthoc.test()` works cell by cell. For each cell in the contingency table, it checks whether the observed count is much higher or lower than expected (the residual), and adjusts the p-values for the 9 cells tested. That's why the output below has a residual and a p-value for each chain level and walkability level combination, not one per pair.</span>
+```{r}
+# install.packages('chisq.posthoc.test')
+library(chisq.posthoc.test)
+# Perform pairwise comparisons with adjusted p-values through bonferroni method
+posthoc_result <- chisq.posthoc.test(contingency_table, method = 'bonferroni')
+posthoc_result
+```
+
+Let's take the first row as an example for interpretation. The low-chain category is significantly underrepresented in low-walkability areas (negative residual -4.8 and very low p-value). It is significantly overrepresented in high-walkability areas (positive residual +4.4 and very low p-value). There is no significant difference for middle-walkability areas.
+
+In summary, low-chain restaurants (i.e., independent restaurant) are less common in low-walkability areas and more common in high-walkability areas. Middle-chain restaurants are evenly distributed across all walkability levels. High-chain restaurants are more common in low-walkability areas and less common in high-walkability areas.
+
+### (Optional) Visualize Chi-square Posthoc Tests 
+
+To visualize the outcome of the chi-square posthoc test, we can create a heatmap to display the standardized residuals. This will help in understanding which cells contribute most to the significant chi-square test result.
+
+```{r}
+# convert the wide table to long table for ggplot2 
+viz_data <- posthoc_result %>% filter(Value == 'Residuals') %>% select(-c(Value)) %>% 
+  pivot_longer(cols = `low-walkability`:`high-walkability`, 
+               names_to = "Walkability_Level", 
+               values_to = "Residuals") %>% 
+  rename(Chain_Level = Dimension)
+
+head(viz_data)
+
+# Create heatmap for residuals with significance highlight
+ggplot(viz_data, aes(x = Walkability_Level, y = Chain_Level, fill = Residuals)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0,
+                       name = "Standardized Residuals") +
+  geom_text(aes(label = round(Residuals, 2)), color = "black") +
+  labs(title = "Standardized Residuals from Chi-Square Posthoc Test",
+       x = "Walkability Level",
+       y = "Chain Level") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+## Practice Questions
+
+We will reproduce the analysis above but with the `pop_density` variable. Please create a new column called `pop_density_level` in `chainness_joined` table. If a MSA’s population density is between 0% and 33% percentiles, then it is considered as "low-density"; if between 33% to 66%, then "middle-density"; if between 66% to 100%, then "high-density".
+
+### Q1 
+
+Aim: to practice setting up hypotheses tests with ANOVA and interpreting their results. 
+
+Conduct an ANOVA and posthoc test to examine the relationship between chain restaurant and population density, using the `chainness_joined` table. What is the null and alternative hypothesis? Which variables should you use? Which pair has the greatest mean difference and is it statistically significant? 
+
+
+### Q2
+
+Aim: to practice creating contingency tables to summarize categorical data.
+
+Compute a contingency table to show relationship between chain restaurant and population density. What variables should you use? How many low-density MSAs are also high in percent chain? [Hint: 67]
+
+### Q3
+
+Aim: to practice using chi-squared to test for associations between categorical variables.
+
+Conduct a chi-square and posthoc test to examine the relationship between chain restaurant and population density. What can you conclude from the results? 
+
+&nbsp;
+&nbsp;
